@@ -21,17 +21,16 @@ class InvalidLineError(SPECParserError):
     pass
 
 
-
 class SPECFile(object):
     """
     Class representing parsed RPM SPEC file.
     """
-    ALLOWED_KEYS = set(['name', 'version', 'release', 'url', 'license',
-                        'summary', 'group', 'sources', 'patches',
-                        'excludearchs', 'exclusivearchs', 'buildarchs',
-                        'buildroot', 'buildrequires', 'buildconflicts',
-                        'requires', 'provides', 'conflicts', 'obsoletes',
-                        'defines', 'subpackages'])
+    ALLOWED_KEYS = {'name', 'version', 'release', 'url', 'license', 'summary',
+                    'group', 'sources', 'patches', 'excludearchs', 'exclusivearchs',
+                    'buildarchs', 'buildroot', 'buildrequires', 'buildconflicts',
+                    'requires', 'provides', 'conflicts', 'obsoletes', 'defines',
+                    'subpackages', 'files', 'prep', 'check', 'build', 'install',
+                    'clean', 'changelog'}
 
     def __init__(self, filename, **kwargs):
         self.filename = filename
@@ -125,7 +124,6 @@ class SPECParser(object):
                       next_states=[],
                       check_perms=[SPECParser._transition]))
 
-
     def __init__(self):
         comm = self.COM_REGEXPS.get('comment', r'(\#.*)')
         self._main_tags = {key: re.compile(r'^\s*%s%s$' % (exp, comm))
@@ -184,10 +182,53 @@ class SPECParser(object):
         """
         match = self._other['directive'].search(line)
         if match:
-            self._block =
+            self._block = '%s:%s' % (match.group(1), match.group(2))
+            return True
+
+        if not self._block:
+            return False
+
+        if self._block.startswith('description:'):
+            pkg = self._block[12:]
+            if not pkg:
+                self._result.setdefault('description', '') += line
+            else
+                self._result['subpackages'][pkg].setdefault('description', '') += line
+            return True
+        elif self._block.startswith('files:'):
+            pkg = self._block[6:]
+            if not pkg:
+                self._result.setdefault('files', []).append(line)
+            else
+                self._result['subpackages'][pkg].setdefault('files', []).append(line)
+            return True
+        return False
 
     def _process_sec(self, line):
-        pass
+        """
+        Process all sections and scriplets such as %prep, %install, %post, etc.
+        Returns True if the processing was successful, otherwise returns False.
+        """
+        match = self._other['section'].search(line)
+        if match:
+            self._block = match.group(1).strip()
+            return True
+
+        match = self._other['scriptlet'].search(line)
+        if match:
+            if match.group(2):
+                sclt = match.group(1).strip()
+                self._result.setdefault(sclt, []).append(match.group(3))
+            else:
+                self._block = match.group(1).strip()
+            return True
+
+        if self._block in ('prep', 'check', 'build', 'install', 'clean',
+                           'changelog', 'pre', 'preun', 'post', 'postun',
+                           'pretrans', 'posttrans'):
+            self._result.setdefault(self.__block, []).append(line)
+            return True
+        return False
 
     def parse(self, spec_file):
         is_file = hasattr(spec_file, 'readlines')
@@ -205,3 +246,4 @@ class SPECParser(object):
                 if self._machine.change_state(state, line=line, parser=self)
                     transition = True
                     break
+        return SPECFile(_fname, **self._result)
