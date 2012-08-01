@@ -5,7 +5,8 @@ import re
 from copy import copy
 
 from .machine import FiniteMachine, State
-import pdb
+#import pdb
+
 
 
 __all__ = ('SPECParser', 'SPECParserError', 'SPECFile')
@@ -21,22 +22,22 @@ class InvalidLineError(SPECParserError):
     pass
 
 
-class BaseDefault(object):
-    pass
-
 class SPECFile(object):
     """
     Class representing parsed RPM SPEC file.
     """
-    ALLOWED_KEYS = {'name', 'version', 'release', 'url', 'license', 'summary',
-                    'group', 'sources', 'patches', 'excludearchs', 'exclusivearchs',
-                    'buildarch', 'buildroot', 'buildrequires', 'buildconflicts',
-                    'requires', 'provides', 'conflicts', 'obsoletes', 'defines',
-                    'subpackages', 'files', 'prep', 'check', 'build', 'install',
-                    'clean', 'changelog', 'description', 'pre', 'preun', 'post',
-                    'postun', 'pretrans', 'posttrans'}
-    SEQUENCE_KEYS = ('sources', 'patches', 'buildrequires', 'buildconflicts',
-                     'conflicts', 'obsoletes', 'subpackages')
+    ALLOWED_KEYS = {'name', 'version', 'release', 'url', 'license',
+                    'summary', 'group', 'sources', 'patches',
+                    'excludearchs', 'exclusivearchs', 'buildarch',
+                    'buildroot', 'buildrequires', 'buildconflicts',
+                    'requires', 'provides', 'conflicts', 'obsoletes',
+                    'defines', 'subpackages', 'files', 'prep', 'check',
+                    'build', 'install', 'clean', 'changelog',
+                    'description', 'pre', 'preun', 'post', 'postun',
+                    'pretrans', 'posttrans'}
+    SEQUENCE_KEYS = ('sources', 'patches', 'buildrequires',
+                     'buildconflicts', 'conflicts', 'obsoletes',
+                     'subpackages')
     SPECIAL_KEYS = ('defines',)
 
     class ValueFormatter(object):
@@ -44,10 +45,19 @@ class SPECFile(object):
         def __init__(self):
             self._macros = [re.compile(i) for i in self.MACRO_REGEXPS]
 
-        def format_sequence(self, owner, value):
-            return [self.format(owner, i) for i in value]
+        def format_sequence(self, owner, value, with_macro=True):
+            result = []
+            for i in value:
+                fi = self.format(owner, i, with_macro=with_macro)
+                if fi: result.append(fi)
+            return result
 
-        def format(self, owner, value):
+        def format(self, owner, value, with_macro=True):
+            """
+            Returns given value with substituted macros with
+            corresponding values. If with_macro is set to False, returns
+            None if all macros could not be substituted.
+            """
             val = str(value)
             for macro in self._macros:
                 for match in macro.finditer(val):
@@ -59,54 +69,58 @@ class SPECFile(object):
                     if attr is None:
                         continue
                     val = re.sub(match.group(0), attr, val)
+            if not owner.with_macro:
+                for macro in self._macros:
+                    if macro.search(val):
+                        return None
             return val
 
-
     def __init__(self, filename, **kwargs):
-        print kwargs.keys()
         self._formatter = self.ValueFormatter()
         self.filename = filename
         for key, value in kwargs.iteritems():
             if key not in self.ALLOWED_KEYS:
                 raise KeyError('Invalid SPEC file attribute: %s' % key)
         self._values = kwargs
-        self.plain = False
+        self.plain = False     # will return plain parsed values?
+        self.with_macro = True # will include unknown macros in values?
 
-    def __getattr__(self, key, default=BaseDefault()):
+    def __getattr__(self, key):
         """
         Returns either plain parsed value or formatted value depending
         to plain attribute.
         """
+        #pdb.set_trace()
+        need_plain = self.plain or key in self.SPECIAL_KEYS
         try:
-            print self._values.keys()
             value = self._values[key]
-        except KeyError:
-            if isinstance(default, BaseDefault):
-                raise KeyError('Unknown SPEC tag')
-            return default
-        if self.plain or key in self.SPECIAL_KEYS:
+        except KeyError, e:
+            raise AttributeError('Unknown SPEC tag or macro: %s' % key)
+        if need_plain:
             return value
+
+        fargs = dict(with_macro=self.with_macro)
         if key in self.SEQUENCE_KEYS:
-            return self._formatter.format_sequence(self, value)
-        return self._formatter.format(self, value)
+            return self._formatter.format_sequence(self, value, **fargs)
+        return self._formatter.format(self, value, **fargs)
 
 
 def _transition(current_state, new_state, **kwargs):
-        """
-        Processing switch.
-        """
-        line = kwargs['line']
-        parser = kwargs['parser']
-        if new_state == 'INIT':
-            return parser._process_init(line)
-        elif new_state == 'TAG':
-            return parser._process_tag(line)
-        elif new_state == 'DIR':
-            return parser._process_dir(line)
-        elif new_state == 'SEC':
-            return parser._process_sec(line)
-        else:
-            return False
+    """
+    Processing switch.
+    """
+    line = kwargs['line']
+    parser = kwargs['parser']
+    if new_state == 'INIT':
+        return parser._process_init(line)
+    elif new_state == 'TAG':
+        return parser._process_tag(line)
+    elif new_state == 'DIR':
+        return parser._process_dir(line)
+    elif new_state == 'SEC':
+        return parser._process_sec(line)
+    else:
+        return False
 
 
 class SPECParser(object):
@@ -209,7 +223,6 @@ class SPECParser(object):
         """
         #pdb.set_trace()
         for key, exp in self._main_tags.iteritems():
-            #print 'main:', exp.pattern, bool(exp.search(line))
             match = exp.search(line)
             if not match:
                 continue
@@ -221,7 +234,6 @@ class SPECParser(object):
             return True
 
         for key, exp in self._tags.iteritems():
-            #print 'sub:', exp.pattern, bool(exp.search(line))
             match = exp.search(line)
             if not match:
                 continue
