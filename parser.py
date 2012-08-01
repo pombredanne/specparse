@@ -21,24 +21,74 @@ class InvalidLineError(SPECParserError):
     pass
 
 
+class BaseDefault(object):
+    pass
+
 class SPECFile(object):
     """
     Class representing parsed RPM SPEC file.
     """
     ALLOWED_KEYS = {'name', 'version', 'release', 'url', 'license', 'summary',
                     'group', 'sources', 'patches', 'excludearchs', 'exclusivearchs',
-                    'buildarchs', 'buildroot', 'buildrequires', 'buildconflicts',
+                    'buildarch', 'buildroot', 'buildrequires', 'buildconflicts',
                     'requires', 'provides', 'conflicts', 'obsoletes', 'defines',
                     'subpackages', 'files', 'prep', 'check', 'build', 'install',
                     'clean', 'changelog', 'description', 'pre', 'preun', 'post',
                     'postun', 'pretrans', 'posttrans'}
+    SEQUENCE_KEYS = ('sources', 'patches', 'buildrequires', 'buildconflicts',
+                     'conflicts', 'obsoletes', 'subpackages')
+    SPECIAL_KEYS = ('defines',)
+
+    class ValueFormatter(object):
+        MACRO_REGEXPS = (r'\%\{\??([^\{\%]*)\}',)
+        def __init__(self):
+            self._macros = [re.compile(i) for i in self.MACRO_REGEXPS]
+
+        def format_sequence(self, owner, value):
+            return [self.format(owner, i) for i in value]
+
+        def format(self, owner, value):
+            val = str(value)
+            for macro in self._macros:
+                for match in macro.finditer(val):
+                    # try to find value in defines and globals
+                    attr = owner.defines.get(match.group(1), None)
+                    # try to find value in SPEC values
+                    if attr is None:
+                        attr = getattr(owner, match.group(1), None)
+                    if attr is None:
+                        continue
+                    val = re.sub(match.group(0), attr, val)
+            return val
+
 
     def __init__(self, filename, **kwargs):
+        print kwargs.keys()
+        self._formatter = self.ValueFormatter()
         self.filename = filename
         for key, value in kwargs.iteritems():
             if key not in self.ALLOWED_KEYS:
                 raise KeyError('Invalid SPEC file attribute: %s' % key)
-            setattr(self, key, value)
+        self._values = kwargs
+        self.plain = False
+
+    def __getattr__(self, key, default=BaseDefault()):
+        """
+        Returns either plain parsed value or formatted value depending
+        to plain attribute.
+        """
+        try:
+            print self._values.keys()
+            value = self._values[key]
+        except KeyError:
+            if isinstance(default, BaseDefault):
+                raise KeyError('Unknown SPEC tag')
+            return default
+        if self.plain or key in self.SPECIAL_KEYS:
+            return value
+        if key in self.SEQUENCE_KEYS:
+            return self._formatter.format_sequence(self, value)
+        return self._formatter.format(self, value)
 
 
 def _transition(current_state, new_state, **kwargs):
@@ -75,13 +125,13 @@ class SPECParser(object):
     }
 
     MAIN_TAG_REGEXPS = {
-        'name':    r'Name:\s*([\w\-\s]+)',
+        'name':    r'Name:\s*([\w\-\s\.\%\?\{\}]+)',
         'version': r'Version:\s*([\w\-\s\.\%\?\{\}]+)',
         'release': r'Release:\s*([\w\-\s\.\%\?\{\}]+)',
         'url':     r'URL:\s*([\w\-\s\.\%\?\{\}\/\:]+)',
         'license': r'License:\s*([\w\-\s\.\+]+)',
-        'sources':  r'Source\d*:\s*([\w\-\s\.\%\?\{\}]+)',
-        'patches':   r'Patch\d*:\s*([\w\-\s\.\%\?\{\}]+)',
+        'sources':  r'Source\d*:\s*([\:\/\w\-\s\.\%\?\{\}]+)',
+        'patches':   r'Patch\d*:\s*([\:\w\-\s\.\%\?\{\}]+)',
 
         'buildarch':      r'BuildArch:\s*(\w+)',
         'buildroot':      r'BuildRoot:\s*([\w\s\-\.\/\%\?\{\}\(\)]+)',
