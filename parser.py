@@ -28,17 +28,17 @@ class SPECFile(object):
     """
     ALLOWED_KEYS = {'name', 'version', 'release', 'url', 'license',
                     'summary', 'group', 'sources', 'patches',
-                    'excludearchs', 'exclusivearchs', 'buildarch',
+                    'excludearch', 'exclusivearch', 'buildarch',
                     'buildroot', 'buildrequires', 'buildconflicts',
                     'requires', 'provides', 'conflicts', 'obsoletes',
                     'defines', 'subpackages', 'files', 'prep', 'check',
                     'build', 'install', 'clean', 'changelog',
                     'description', 'pre', 'preun', 'post', 'postun',
-                    'pretrans', 'posttrans'}
-    SEQUENCE_KEYS = ('sources', 'patches', 'buildrequires',
+                    'pretrans', 'posttrans', 'epoch'}
+    SEQUENCE_KEYS = {'sources', 'patches', 'buildrequires', 'requires',
                      'buildconflicts', 'conflicts', 'obsoletes',
-                     'subpackages')
-    SPECIAL_KEYS = ('defines',)
+                     'subpackages'}
+    SPECIAL_KEYS = {'defines', 'subpackages'}
 
     class ValueFormatter(object):
         MACRO_REGEXPS = (r'\%\{\??([^\{\%]*)\}',)
@@ -59,10 +59,11 @@ class SPECFile(object):
             None if all macros could not be substituted.
             """
             val = str(value)
+            defines = getattr(owner, 'defines', {})
             for macro in self._macros:
                 for match in macro.finditer(val):
                     # try to find value in defines and globals
-                    attr = owner.defines.get(match.group(1), None)
+                    attr = defines.get(match.group(1), None)
                     # try to find value in SPEC values
                     if attr is None:
                         attr = getattr(owner, match.group(1), None)
@@ -142,6 +143,7 @@ class SPECParser(object):
         'name':    r'Name:\s*([\w\-\s\.\%\?\{\}]+)',
         'version': r'Version:\s*([\w\-\s\.\%\?\{\}]+)',
         'release': r'Release:\s*([\w\-\s\.\%\?\{\}]+)',
+        'epoch':   r'Epoch:\s*([\w\-\s\.\%\?\{\}]+)',
         'url':     r'URL:\s*([\w\-\s\.\%\?\{\}\/\:]+)',
         'license': r'License:\s*([\w\-\s\.\+]+)',
         'sources':  r'Source\d*:\s*([\:\/\w\-\s\.\%\?\{\}]+)',
