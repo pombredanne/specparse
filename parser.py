@@ -96,7 +96,11 @@ class SPECFile(object):
         try:
             value = self._values[key]
         except KeyError, e:
-            raise AttributeError('Unknown SPEC tag or macro: %s' % key)
+            if key in self.SEQUENCE_KEYS:
+                return []
+            else:
+                raise AttributeError('Unknown SPEC tag or macro: %s' % key)
+
         if need_plain:
             return value
 
@@ -191,9 +195,10 @@ class SPECParser(object):
 
     def __init__(self):
         comm = self.COM_REGEXPS.get('comment', r'(\#.*)')
-        self._main_tags = {key: re.compile(r'^\s*%s%s?$' % (exp, comm))
+        fmt = r'^\s*%s%s?$'
+        self._main_tags = {key: re.compile(fmt % (exp, comm))
                            for key, exp in self.MAIN_TAG_REGEXPS.iteritems()}
-        self._tags = {key: re.compile(r'^\s*%s%s?$' % (exp, comm))
+        self._tags = {key: re.compile(fmt % (exp, comm))
                       for key, exp in self.TAG_REGEXPS.iteritems()}
         self._other = {key: re.compile(r'^\s*%s' % exp)
                        for key, exp in self.COM_REGEXPS.iteritems()}
